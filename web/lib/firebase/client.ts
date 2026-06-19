@@ -15,16 +15,25 @@ const config = {
   appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+// Whether the deployment has real Firebase credentials wired in.
+export const firebaseConfigured = Boolean(config.apiKey && config.projectId);
+
 function makeApp(): FirebaseApp {
-  if (!config.projectId) {
-    // We don't throw here — the UI will surface a friendlier error on
-    // first auth call.  This lets `next build` succeed before .env.local
-    // is filled in.
+  if (getApps().length) return getApp();
+  if (!firebaseConfigured) {
+    // Don't crash the build/prerender when env is missing (e.g. a fresh
+    // Vercel deploy before env vars are added).  Auth/Firestore calls will
+    // still fail at runtime until the NEXT_PUBLIC_FIREBASE_* vars are set in
+    // the host's Environment Variables.
     console.warn(
-      "[firebase] NEXT_PUBLIC_FIREBASE_* env vars not set; auth & Firestore will fail at runtime.",
+      "[firebase] NEXT_PUBLIC_FIREBASE_* env vars not set; auth & Firestore " +
+      "will fail at runtime. Add them in your host (e.g. Vercel → Project " +
+      "Settings → Environment Variables) and redeploy.",
     );
   }
-  return getApps().length ? getApp() : initializeApp(config);
+  // A non-empty placeholder apiKey keeps getAuth() from throwing
+  // `auth/invalid-api-key` during the build when env is absent.
+  return initializeApp({ ...config, apiKey: config.apiKey || "missing-api-key" });
 }
 
 export const firebaseApp: FirebaseApp = makeApp();
