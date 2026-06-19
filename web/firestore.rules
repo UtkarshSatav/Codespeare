@@ -1,0 +1,92 @@
+// Firestore security rules — client-direct architecture.
+//
+// All writes come from the browser (using the Web SDK).  There is no
+// admin-SDK back end, so rules are the only line of defence against
+// abuse.  The structure below:
+//
+//   * Anyone can read public collections (problems metadata, leaderboard,
+//     discussions).
+//   * Authenticated users can write only their own data, and only the
+//     fields the app expects.
+//
+// Deploy:  `firebase deploy --only firestore:rules`
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+    function incoming() { return request.resource.data; }
+
+    // Username uniqueness index — claimed during signup.  A user can
+    // create a username doc only if it points back to their own uid.
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Profile docs — world-readable, owner creates and may edit
+    // `bio` only after creation.
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if isSelf(uid)
+        && incoming().keys().hasAll(['username', 'email', 'rating', 'created_at'])
+        && incoming().rating == 1200;
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['bio']);
+      allow delete: if false;
+    }
+
+    // Submissions — readable by anyone; owner can create their own and
+    // patch the verdict fields (this demo trusts the client to update
+    // its own verdict; production would route writes through a
+    // privileged Cloud Function).
+    match /submissions/{id} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && incoming().user_id == request.auth.uid
+        && incoming().status == 'QUEUED';
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Discussions — public read; owner-only writes.
+    match /discussions/{id} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && incoming().user_id == request.auth.uid;
+      // Anyone signed in may upvote (only the `upvotes` field).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['upvotes']);
+      allow delete: if false;
+    }
+
+    // Per-problem mutable metadata — readable; updated via
+    // FieldValue.increment by authenticated users (rules can't sanity-
+    // check the delta but rate-limits / functions can layer on later).
+    match /problemMeta/{slug} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Personal bookmarks / likes — only owner reads or writes.
+    match /userBookmarks/{uid}/items/{slug} {
+      allow read, write: if isSelf(uid);
+    }
+    match /userLikes/{uid}/items/{slug} {
+      allow read, write: if isSelf(uid);
+    }
+
+    // Private per-problem notes — only the owner may read or write.
+    match /userNotes/{uid}/items/{slug} {
+      allow read, write: if isSelf(uid);
+    }
+  }
+}

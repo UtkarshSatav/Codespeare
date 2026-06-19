@@ -1,0 +1,6 @@
+# Standard-library only — kept intentionally dependency-free so the demo
+# runs anywhere Python 3.9+ is installed.
+#
+# In production the corresponding services would add:
+#   fastapi, uvicorn, sqlalchemy, asyncpg, aiokafka, boto3, redis,
+#   prometheus-client, opentelemetry-sdk, pyjwt, structlog
